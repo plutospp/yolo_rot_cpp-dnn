@@ -7,6 +7,7 @@ A high-performance C++ inference application for **YOLO-rot** oriented bounding 
 ## Features
 
 - **OpenCV 5 DNN Integration:** Runs exported ONNX models via `cv::dnn::readNetFromONNX` using either the new DNN engine or classic engine.
+- **Static Per-Channel Quantization (Static PCQ):** Export and quantize floating-point ONNX models into 8-bit quantized ONNX models (`INT8` weights / `UINT8` activations) using ONNXRuntime `quantize_static` with per-channel weight scaling and image calibration.
 - **Multi-Input Sources:** Supports video files, USB camera indices (with real-time thread-safe frame grabbing to prevent buffer lag), and still images.
 - **Live Rotation Control:** Real-time trackbar and hotkeys to rotate input frames dynamically while inference is running.
 - **Visualization:**
@@ -24,6 +25,7 @@ A high-performance C++ inference application for **YOLO-rot** oriented bounding 
 ```
 cpp_dnn/
 ├── export_onnx.py          # Python ONNX exporter with spec guard & graph optimizations
+├── quantize_onnx.py        # Static Per-Channel Quantization (Static PCQ) tool for ONNX models
 ├── CMakeLists.txt          # CMake build configuration (C++17, OpenCV 5, MSVC settings)
 └── src/
     ├── model_spec.hpp      # Anchor specifications, class names, and color constants
@@ -34,8 +36,9 @@ cpp_dnn/
 
 ---
 
-## 1. Exporting the ONNX Model
+## 1. Exporting & Quantizing the ONNX Model
 
+### 1.1 Export Floating-Point ONNX Model
 Export the PyTorch checkpoint to a raw-head ONNX file compatible with OpenCV DNN:
 
 ```bash
@@ -49,6 +52,28 @@ python cpp_dnn/export_onnx.py \
 - `--config`: Model JSON config file (default: `configs/rot_dual_bbox_shared_xy_v2.5_decoupled_cls_obj_masked_3cls.json`).
 - `--weights`: Weight checkpoint selector: `best`, `last_epoch`, or `last_batch` (default: `best`).
 - `--out`: Destination path for output `.onnx` file.
+- `--static-pcq`: Enable static per-channel post-training quantization directly after export.
+- `--calib-dir`: Optional directory containing calibration images for static PCQ.
+
+---
+
+### 1.2 Static Per-Channel Quantization (Static PCQ)
+
+To apply static per-channel post-training quantization (PCQ) to an existing ONNX model, run `cpp_dnn/quantize_onnx.py`:
+
+```bash
+python cpp_dnn/quantize_onnx.py \
+    --model model_data/rot_dual_bbox_shared_xy_v2.5_decoupled_cls_obj_masked_3cls_rawhead.onnx \
+    --out model_data/rot_dual_bbox_shared_xy_v2.5_decoupled_cls_obj_masked_3cls_rawhead_pcq.onnx \
+    --calib-dir data/val2017 \
+    --num-samples 32
+```
+
+#### PCQ Options & Features:
+- **Per-Channel Quantization:** Quantizes Conv weights with per-channel scaling factor (`--per-channel`).
+- **Calibration Data Reader (`ImageCalibrationDataReader`):** Loads calibration images from `--calib-dir`, letterboxing and normalizing them to match network input shape `(1, 3, 640, 640)`. If no calibration images are supplied, deterministic calibration samples are automatically generated.
+- **Quantization Format:** Supports QuantizeLinear-DequantizeLinear (`QDQ`) and `QOperator` formats (`--quant-format qdq`).
+- **Precision Types:** INT8 weight quantization (`--weight-type int8`) and UINT8 activation quantization (`--activation-type uint8`).
 
 ---
 
@@ -84,7 +109,7 @@ cpp_dnn\build\yolo_rot_dnn.exe --model=model_data\rot_dual_bbox_shared_xy_v2.5_d
 
 | Option | Default | Description |
 |---|---|---|
-| `--model` | `<required>` | Path to the exported `_rawhead.onnx` model file. |
+| `--model` | `<required>` | Path to the exported `_rawhead.onnx` or `_pcq.onnx` model file. |
 | `--source` | `<required>` | Input source: numeric index for USB camera (e.g. `0`), image file (`.png`, `.jpg`, etc.), or video file. |
 | `--conf` | `0.5` | Confidence threshold in range `(0, 1)`. |
 | `--nms` | `0.6` | Non-Maximum Suppression IoU threshold in range `(0, 1]`. |

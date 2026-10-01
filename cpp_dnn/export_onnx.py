@@ -41,6 +41,8 @@ def parse_args():
     parser.add_argument("--config", default="configs/rot_dual_bbox_shared_xy_v2.5_decoupled_cls_obj_masked_3cls.json")
     parser.add_argument("--weights", choices=["best", "last_epoch", "last_batch"], default="best")
     parser.add_argument("--out", default="")
+    parser.add_argument("--static-pcq", action="store_true", help="Perform static per-channel quantization (Static PCQ) after export")
+    parser.add_argument("--calib-dir", default="", help="Directory containing calibration images for static PCQ")
     return parser.parse_args()
 
 
@@ -234,6 +236,14 @@ def main():
 
     mb = out_file.stat().st_size / (1024 * 1024)
     print(f"exported {out_file} ({mb:.2f} MB) from {ckpt_path} sha256 {sha}")
+
+    if args.static_pcq:
+        try:
+            from quantize_onnx import quantize_static_pcq
+            pcq_out = out_file.parent / f"{out_file.stem}_pcq.onnx"
+            quantize_static_pcq(out_file, pcq_out, calib_dir=args.calib_dir)
+        except Exception as e:
+            print(f"Warning: static PCQ failed or skipped: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
